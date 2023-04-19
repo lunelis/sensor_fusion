@@ -26,17 +26,17 @@ calibrate({MBx,MBy,MBz}) ->
 init(R0) ->
     Spec = #{
         name => ?MODULE,
-        iter => 1000,
-        timeout => 10
+        iter => 10000,
+        timeout => 0
     },
-    X = [[1],[0],[0],[0]],
+    X = mat:matrix([[1],[0],[0],[0]]),
     P = mat:diag([10,10,10,10]),
     State = {hera:timestamp(), X, P, R0},
     {ok, State, Spec}.
 
 
 measure({T0, X0, P0, R0}) ->
-    DataNav = hera_data:get(nav3, sensor_fusion@nav_2),
+    DataNav = hera_data:get(nav3, sensor_fusion@nav_1),
     T1 = hera:timestamp(),
     Nav = [Data || {_,_,Ts,Data} <- DataNav, T0 < Ts, T1-Ts < 500],
     if
@@ -52,12 +52,12 @@ measure({T0, X0, P0, R0}) ->
             Dt = (T1-T0)/1000,
             [Wx,Wy,Wz] = Gyro,
 
-            Omega = [
+            Omega = mat:matrix([
                 [0,Wx,Wy,Wz],
                 [-Wx,0,-Wz,Wy],
                 [-Wy,Wz,0,-Wx],
                 [-Wz,-Wy,Wx,0]
-            ],
+            ]),
             F = mat:'+'(mat:eye(4), mat:'*'(0.5*Dt, Omega)),
             Q = mat:diag([?VAR_Q,?VAR_Q,?VAR_Q,?VAR_Q]),
             H = mat:eye(4),
@@ -72,8 +72,8 @@ measure({T0, X0, P0, R0}) ->
                     kalman:kf_update({mat:'*'(-1,Xp), Pp}, H, R, Z)
             end,
             % {X1, P1} = {Xp, Pp}, % gyro only
-            Values = unit([X || [X] <- X1]),
-            X1Norm = [[X] || X <- Values],
+            Values = unit([X || [X] <- mat:to_array(X1)]),
+            X1Norm = mat:matrix([[X] || X <- Values]),
             {ok, Values, {T1, X1Norm, P1, R0}}
     end.
 
@@ -81,7 +81,9 @@ measure({T0, X0, P0, R0}) ->
 %% Internal functions
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-qdot([[Q11], [Q12], [Q13], [Q14]], [[Q21], [Q22], [Q23], [Q24]]) ->
+qdot(Z, Xp) ->
+    [Q11, Q12, Q13, Q14] = mat:to_array(Z),
+    [Q21, Q22, Q23, Q24] = mat:to_array(Xp),
     Q11*Q21 + Q12*Q22 + Q13*Q23 + Q14*Q24.
 
 
@@ -107,22 +109,22 @@ calibrate(Comp, Registers, N) ->
     [lists:sum(X)/N, lists:sum(Y)/N, lists:sum(Z)/N].
 
 
+% Acc, Mag : arrays
+% returns a mat matrix
 ahrs(Acc, Mag) ->
     Down = unit([-A || A <- Acc]),
     East = unit(cross_product(Down, unit(Mag))),
     North = unit(cross_product(East, Down)),
-    mat:tr([North, East, Down]).
+    mat:tr(mat:matrix([North, East, Down])).
 
 
 cross_product([U1,U2,U3], [V1,V2,V3]) -> 
     [U2*V3-U3*V2, U3*V1-U1*V3, U1*V2-U2*V1].
 
 
+% returns mat matrix
 dcm2quat(R) ->
-    [[R11,R12,R13],
-     [R21,R22,R23],
-     [R31,R32,R33]
-    ] = R,
+    [R11,R12,R13,R21,R22,R23,R31,R32,R33] = mat:to_array(R),
     Q12 = 0.25*(1+R11+R22+R33),
     Q1 = math:sqrt(Q12),
     V = [
@@ -131,4 +133,4 @@ dcm2quat(R) ->
         R13-R31,
         R21-R12
     ],
-    scale(V, (0.25/Q1)).
+    mat:matrix([scale(V, (0.25/Q1))]).
