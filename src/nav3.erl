@@ -32,7 +32,7 @@ init(C) ->
     Spec = #{
         name => ?MODULE,
         iter => infinity,
-        timeout => 100
+        timeout => 0
     },
     {ok, C, Spec}.
 

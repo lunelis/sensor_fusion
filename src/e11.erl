@@ -26,7 +26,7 @@ calibrate({MBx,MBy,MBz}) ->
 init(R0) ->
     Spec = #{
         name => ?MODULE,
-        iter => 1000,
+        iter => 10000,
         timeout => 0
     },
     X = [[1],[0],[0],[0]],
@@ -41,6 +41,12 @@ measure({T0, X0, P0, R0}) ->
     Nav = [Data || {_,_,Ts,Data} <- DataNav, T0 < Ts, T1-Ts < 500],
     if
         length(Nav) == 0 ->
+            %F = mat:eye(4),
+            %Q = mat:diag([?VAR_Q,?VAR_Q,?VAR_Q,?VAR_Q]),
+            %{Xp, Pp} = kalman:kf_predict({X0,P0}, F, Q),
+            %Values = unit([X || [X] <- Xp]),
+            %X1Norm = [[X] || X <- Values],
+            %{ok, Values, {T1, X1Norm, Pp, R0}};
             {undefined, {T0, X0, P0, R0}};
         true ->
             {Acc, Gyro, Mag} = process_nav(Nav),
