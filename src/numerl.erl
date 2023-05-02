@@ -6,16 +6,7 @@
 %-record(matrix, {n_rows, n_cols, bin}).
 
 init()->
-  Dir = case code:priv_dir(numerl) of
-              {error, bad_name} ->
-                  filename:join(
-                    filename:dirname(
-                      filename:dirname(
-                        code:which(?MODULE))), "priv");
-              D -> D
-          end,
-    SoName = filename:join(Dir, atom_to_list(?MODULE)),
-    erlang:load_nif(SoName, 0).
+    ok  = erlang:load_nif(atom_to_list(?MODULE), 0).
 
 %Creates a random matrix.
 rnd_matrix(N)->

@@ -4,19 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h> 
-#include <cblas.h>
-
-
-/*
---------------------------------------------------------------------|
-            ------------------------------                          |
-            |          LAPACKE           |                          |
-            ------------------------------                          |
---------------------------------------------------------------------|
-*/
-
-void dgetrf_(int* M, int *N, double* A, int* lda, int* IPIV, int* INFO);
-void dgetri_(int* N, double* A, int* lda, int* IPIV, double* WORK, int* lwork, int* INFO);
 
 
 /*
@@ -29,17 +16,17 @@ void dgetri_(int* N, double* A, int* lda, int* IPIV, double* WORK, int* lwork, i
 
 
 ERL_NIF_TERM atom_nok;
-ERL_NIF_TERM atom_true;
-ERL_NIF_TERM atom_false;
+ERL_NIF_TERM numerl_atom_true;
+ERL_NIF_TERM numerl_atom_false;
 ERL_NIF_TERM atom_matrix;
 const int CSTE_TIMESLICE = 5;
 
 ErlNifResourceType *MULT_YIELDING_ARG = NULL;
 
-int load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info){
+int numerl_load(ErlNifEnv* env, void** priv_data, ERL_NIF_TERM load_info){
     atom_nok = enif_make_atom(env, "nok\0");
-    atom_true = enif_make_atom(env, "true\0");
-    atom_false = enif_make_atom(env, "false\0");
+    numerl_atom_true = enif_make_atom(env, "true\0");
+    numerl_atom_false = enif_make_atom(env, "false\0");
     atom_matrix = enif_make_atom(env, "matrix\0");
     return 0;
 }
@@ -365,18 +352,18 @@ ERL_NIF_TERM nif_equals(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]){
     Matrix a,b;
 
     if(!enif_get(env, argv, "mm", &a, &b))
-        return atom_false;
+        return numerl_atom_false;
 
     //Compare number of columns and rows
     if((a.n_cols != b.n_cols || a.n_rows != b.n_rows))
-        return atom_false;
+        return numerl_atom_false;
 
     //Compare content of arrays
     if(!equal_ad(a.content, b.content, a.n_cols*a.n_rows))
-        return atom_false;
+        return numerl_atom_false;
     
     enif_consume_timeslice(env, CSTE_TIMESLICE);
-    return atom_true;
+    return numerl_atom_true;
 }
 
 
@@ -626,128 +613,75 @@ ERL_NIF_TERM nif_inv(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]){
     if(!enif_get_matrix(env, argv[0], &a))
         return enif_make_badarg(env);
 
-    Matrix inv = matrix_dup(a);
+    if(a.n_cols != a.n_rows){
+        return atom_nok;
+    }
+    int n_cols = 2*a.n_cols;
 
-    int N = a.n_rows;
-    int *IPIV = enif_alloc(sizeof(int)*N);
-    int LWORK = N*N;
-    double* WORK = enif_alloc(sizeof(int)*N*N);
-    int INFO1, INFO2;
+    double* gj = (double*) enif_alloc(n_cols*a.n_rows*sizeof(double));
+    for(int i=0; i<a.n_rows; i++){
+        memcpy(gj+i*n_cols, a.content+i*a.n_cols, sizeof(double)*a.n_cols);
+        memset(gj+i*n_cols + a.n_cols, 0, sizeof(double)*a.n_cols);
+        gj[i*n_cols + a.n_cols + i] = 1.0;
+    }
 
-    dgetrf_(&N,&N,inv.content,&N,IPIV,&INFO1);
-    dgetri_(&N,inv.content,&N,IPIV,WORK,&LWORK,&INFO2);
+    //Elimination de Gauss Jordan:
+    //https://fr.wikipedia.org/wiki/%C3%89limination_de_Gauss-Jordan
+   
+    //Row of last found pivot
+    int r = -1;
+    //j for all indexes of column
+    for(int j=0; j<a.n_cols; j++){
 
+        //Find the row of the maximum in column j
+        int pivot_row = -1;
+        for(int cur_row=r; cur_row<a.n_rows; cur_row++){
+            if(pivot_row<0 || fabs(gj[cur_row*n_cols + j]) > fabs(gj[pivot_row*n_cols+j])){
+                pivot_row = cur_row;
+            }
+        }
+        double pivot_value = gj[pivot_row*n_cols+j];
+
+        if(pivot_value != 0){
+            r++;
+            for(int cur_col=0; cur_col<n_cols; cur_col++){
+                gj[cur_col+pivot_row*n_cols] /= pivot_value;
+            }
+            gj[pivot_row*n_cols + j] = 1.0; //make up for rounding errors
+
+            //Do we need to swap?
+            if(pivot_row != r){
+                for(int i = 0; i<n_cols; i++){
+                    double cpy = gj[pivot_row*n_cols+i];
+                    gj[pivot_row*n_cols+i]= gj[r*n_cols+i];
+                    gj[r*n_cols+i] = cpy;
+                }
+            }
+
+            //We can simplify all the rows
+            for(int i=0; i<a.n_rows; i++){
+                if(i!=r){
+                    double factor = gj[i*n_cols+j];
+                    for(int col=0; col<n_cols; col++){
+                        gj[col+i*n_cols] -= gj[col+r*n_cols]*factor;
+                    }
+                    gj[i*n_cols+j] = 0.0;    //make up for rounding errors
+                }
+            }
+        }
+
+    }
     
-    enif_free(IPIV);
-    enif_free(WORK);
-    ERL_NIF_TERM result;
-
-    if(INFO1 > 0 || INFO2 > 0){
-        result = enif_raise_exception(env, enif_make_atom(env, "nif_inv: could not invert singular matrix."));
-        matrix_free(inv);
+    Matrix inv = matrix_alloc(a.n_rows, a.n_cols);
+    for(int l=0; l<inv.n_rows; l++){
+        int line_start = l*n_cols + a.n_cols;
+        memcpy(inv.content + inv.n_cols*l, gj + line_start, sizeof(double)*inv.n_cols);
     }
-    else if(INFO1 < 0 || INFO2 < 0){
-        result = enif_raise_exception(env, enif_make_atom(env, "nif_inv: LAPACK error."));
-        matrix_free(inv);
-    }
-    else result = matrix_to_erl(env, inv);
 
+    enif_free(gj);
     enif_consume_timeslice(env, a.n_cols*a.n_rows / 100);
-    return result;
+    return matrix_to_erl(env, inv);
 }
-
-//----------------------------------------------------------------------------------------------------|
-//                        ------------------------------------------                                  |
-//                        |                   CBLAS                |                                  |
-//                        ------------------------------------------                                  |
-//----------------------------------------------------------------------------------------------------|
-//Some CBLAS wrappers.
-
-//Calculates the norm of input vector/matrix, aka the square root of the sum of its composants.
-ERL_NIF_TERM nif_dnrm2(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]){
-    Matrix x;
-
-    if(!enif_get(env, argv, "m", &x)){
-        return enif_make_badarg(env);
-    }
-
-    double result = cblas_dnrm2(x.n_cols*x.n_rows, x.content, 1);
-    enif_consume_timeslice(env, x.n_cols*x.n_rows / 100);
-    return enif_make_double(env, result);
-}
-
-
-//Performs blas_ddot
-//Input: two vectors / matrices
-ERL_NIF_TERM nif_ddot(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]){
-    Matrix x,y;
-
-    if(!enif_get(env, argv, "mm", &x, &y)){
-        return enif_make_badarg(env);
-    }
-
-    int n = fmin(x.n_rows*x.n_cols, y.n_rows*y.n_cols);
-    if(n <= 0){
-        return enif_make_badarg(env);
-    }
-
-    double result = cblas_ddot(n, x.content, 1, y.content, 1);
-    enif_consume_timeslice(env, n / 100);
-    return enif_make_double(env, result);
-}
-
-
-//Performs blas_daxpy
-//Input: a number, vectors X and Y
-//Output: a vector of same dimension then Y, containing alpha X + Y
-//------------------------------------------------------------------------
-ERL_NIF_TERM nif_daxpy(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]){
-    Matrix x,y;
-    int n;
-    double alpha;
-
-    if(!enif_get(env, argv, "inmm", &n, &alpha, &x, &y)){
-        return enif_make_badarg(env);
-    }
-    
-    if(fmin(x.n_rows, x.n_cols) * fmin(y.n_rows, y.n_cols) != 1){
-        //We are not using vectors...
-        return enif_make_badarg(env);
-    }
-
-    Matrix ny = matrix_dup(y);
-
-    cblas_daxpy(n, alpha, x.content, 1, ny.content, 1);
-    enif_consume_timeslice(env, n / 100);
-    return matrix_to_erl(env, ny);
-}
-
-// Arguments: alpha, A, x, beta, y
-// Performs alpha*A*x + beta*y.
-// alpha, beta are numbers
-// A, x, y are matrices (x and y being vectors)
-// x and y are expected to have a length of A.n_cols
-ERL_NIF_TERM nif_dgemv(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]){
-    Matrix A,x,y;
-    double alpha, beta;
-
-    if(!enif_get(env, argv, "nmmnm", &alpha, &A, &x, &beta, &y)){
-        enif_make_badarg(env);
-    }
-
-    //Check dimensions compatibility
-    int vec_length = fmin(fmax(x.n_cols, x.n_rows), fmax(y.n_cols, y.n_rows));
-    if(vec_length < A.n_cols || fmin(x.n_cols, x.n_rows) != 1 || fmin(y.n_cols, y.n_rows) != 1){
-        enif_make_badarg(env);
-    }
-
-    Matrix ny = matrix_dup(y);
-
-    cblas_dgemv(CblasRowMajor, CblasNoTrans, A.n_rows, A.n_cols, alpha, A.content, A.n_rows, x.content, 1,  beta, ny.content, 1);
-    enif_consume_timeslice(env, A.n_cols*A.n_rows / 100);
-    return matrix_to_erl(env, ny);
-}
-
 
 
 //Arguments: double alpha, matrix A, matrix B, double beta, matrix C
@@ -763,17 +697,30 @@ ERL_NIF_TERM nif_dgemm(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]){
     //debug_write_matrix(A);
     //debug_write_matrix(B);
 
-    Matrix C = matrix_alloc(A.n_rows, B.n_cols);
-    //debug_write_matrix(C);
+    int n_rows = A.n_rows;
+    int n_cols = B.n_cols;
 
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans,
-    A.n_rows, B.n_cols, A.n_cols,
-    1.0, A.content, A.n_cols, B.content, B.n_cols, 
-    0.0, C.content, C.n_cols);
+    if(A.n_cols != B.n_rows)
+        return atom_nok;
 
-    //debug_write_matrix(C);
+    Matrix result = matrix_alloc(n_rows, n_cols);
+    memset(result.content, 0.0, n_rows*n_cols * sizeof(double));
+
+    //Will this create a mem leak?
+    Matrix b_tr = tr(B); 
+    
+    for(int i = 0; i < n_rows; i++){
+        for(int j = 0; j < n_cols; j++){
+           for(int k = 0; k<A.n_cols; k++){
+               result.content[j+i*result.n_cols] += A.content[k+i*A.n_cols] * b_tr.content[k+j*b_tr.n_cols];
+           }
+        }
+    }
+
+    enif_release_binary(&b_tr.bin); // might need to replace by enif_release_binary(&m.bin);
+
     enif_consume_timeslice(env, A.n_cols*A.n_rows*B.n_rows / 100);
-    return matrix_to_erl(env, C);
+    return matrix_to_erl(env, result);
 }
 
 ErlNifFunc nif_funcs[] = {
@@ -794,10 +741,7 @@ ErlNifFunc nif_funcs[] = {
     {"transpose", 1, nif_transpose},
     {"inv", 1, nif_inv},
     
-    //--- BLAS----------
-    {"nrm2", 1, nif_dnrm2},
-    {"vec_dot", 2, nif_ddot},
     {"dot", 2, nif_dgemm}
 };
 
-ERL_NIF_INIT(numerl, nif_funcs, load, NULL, upgrade, NULL)
+ERL_NIF_INIT(numerl, nif_funcs, numerl_load, NULL, upgrade, NULL)

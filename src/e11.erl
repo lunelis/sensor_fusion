@@ -61,7 +61,7 @@ measure({T0, X0, P0, R0}) ->
             F = mat:'+'(mat:eye(4), mat:'*'(0.5*Dt, Omega)),
             Q = mat:diag([?VAR_Q,?VAR_Q,?VAR_Q,?VAR_Q]),
             H = mat:eye(4),
-            Z = mat:tr([Quat]),
+            Z = mat:tr(Quat),
             R = mat:diag([?VAR_R,?VAR_R,?VAR_R,?VAR_R]),
 
             {Xp, Pp} = kalman:kf_predict({X0,P0}, F, Q),
@@ -72,7 +72,7 @@ measure({T0, X0, P0, R0}) ->
                     kalman:kf_update({mat:'*'(-1,Xp), Pp}, H, R, Z)
             end,
             % {X1, P1} = {Xp, Pp}, % gyro only
-            Values = unit([X || [X] <- mat:to_array(X1)]),
+            Values = unit(mat:to_array(X1)),
             X1Norm = mat:matrix([[X] || X <- Values]),
             {ok, Values, {T1, X1Norm, P1, R0}}
     end.
