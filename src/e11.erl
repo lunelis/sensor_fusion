@@ -44,6 +44,9 @@ measure({T0, X0, P0, R0}) ->
             {undefined, {T0, X0, P0, R0}};
         true ->
             {Acc, Gyro, Mag} = process_nav(Nav),
+
+            Start_comp = erlang:monotonic_time(microsecond),
+
             R1 = ahrs(Acc, Mag),
             Quat = dcm2quat(mat:'*'(R1, R0)),
             
@@ -72,9 +75,12 @@ measure({T0, X0, P0, R0}) ->
                     kalman:kf_update({mat:'*'(-1,Xp), Pp}, H, R, Z)
             end,
             % {X1, P1} = {Xp, Pp}, % gyro only
+            
+            %Values = unit(mat:to_array(X1)),
             Values = unit(mat:to_array(X1)),
             X1Norm = mat:matrix([[X] || X <- Values]),
-            {ok, Values, {T1, X1Norm, P1, R0}}
+
+            {ok, lists:append(Values,[erlang:monotonic_time(microsecond)-Start_comp]), {T1, X1Norm, P1, R0}}
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
