@@ -1,0 +1,22 @@
+Input size set to 4
+
+Testing eye
+Erlang native:  23.650074
+Nif: 9.759500
+Factor:2.423287
+
+Testing inversion
+Erlang native:  392.237822
+Nif: 25.281426
+Factor:15.514861
+
+Testing transpose
+Erlang native:  25.296066
+Nif: 9.634150
+Factor:2.625667
+
+Testing mult
+Erlang native:  154.720734
+Nif: 11.664718
+Factor:13.263993
+
