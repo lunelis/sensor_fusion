@@ -1,6 +1,8 @@
-Repository of the master thesis ["The Hera framework for fault-tolerant sensor fusion on an Internet of Things network with application to inertial navigation and tracking"](thesis.pdf) by Sébastien Kalbusch and Vincent Verpoten.
-This repository is based on the work of a previous master thesis from Julien Bastin and Guillaume Neirinckx.
-You can find their repository here: https://github.com/bastinjul/sensor_fusion
+Repository of the master thesis ["Low-cost high-speed sensor fusion
+with GRiSP and Hera"](thesis.pdf) by Lucas Nélis.
+This repository is based on the work of two successive master thesis:
+-  from Julien Bastin and Guillaume Neirinckx : https://github.com/bastinjul/sensor_fusion
+- from Sébastien Kalbusch and Vincent Verpoten : https://github.com/sebkm/sensor_fusion
 
 # User manual
 
@@ -8,10 +10,8 @@ You can find their repository here: https://github.com/bastinjul/sensor_fusion
 To use our system you need:
 - 1 computer
 - 1 wifi access point (a smartphone is enough)
-- 4 GRiSP-base (with sd card)
-- 1 Pmod NAV
-- at least 3 Pmod MAXSONAR
-- 4 batteries (with micro-usb connector)
+- 1 or more GRiSP2 (with sd card)
+- Pmod sensors
 
 You can find all GRiSP related hardware at https://www.grisp.org/shop/.
 
@@ -19,22 +19,21 @@ Additionally, if you want to reproduce some of our experiments you might need to
 
 ## Required software
 To use our system you need to install on your computer:
-- Erlang/OTP 22.0
-- rebar3 3.13.0
-- rebar3_hex 6.9.6
-- rebar3_grisp 1.3.0
+- Erlang/OTP 25.0
+- rebar3 3.18.0
+- rebar3_hex 
+- rebar3_grisp 
 - GNU Octave (only for the visualization tool)
 
-It is very important to install the specified versions because the most recent versions are not compatible.
 We advise you to work on GNU/Linux and to follow this tutorial https://github.com/grisp/grisp/wiki in case of problems.
-First, you can install [Erlang/OTP](https://www.erlang.org/downloads/22.0).
-Then, you can install [rebar3](https://github.com/erlang/rebar3/releases/tag/3.13.0) and follow this tutorial https://github.com/erlang/rebar3/#getting-started.
+First, you can install [Erlang/OTP](https://www.erlang.org/patches/otp-25.0).
+Then, you can install [rebar3](https://github.com/erlang/rebar3/releases/tag/3.18.0) and follow this tutorial https://github.com/erlang/rebar3/#getting-started.
 When this is done, you should specify the plugins in ~/.config/rebar3/rebar.config:
 
 ```erlang
 {plugins, [
-	{rebar3_hex, "6.9.6"},
-    {rebar3_grisp, "1.3.0"}
+	{rebar3_hex},
+    {rebar3_grisp}
 ]}.
 ```
 
@@ -50,7 +49,7 @@ Then, you must indicate the IP addresses and hostnames in [erl_inetrc](grisp/gri
 For example:
 
 ```erlang
-{host, {192,168,43,217}, ["sebastien"]}. % computer node
+{host, {192,168,43,217}, ["hostname_computer"]}. % computer node
 {host, {192,168,43,12}, ["sonar_1"]}.
 {host, {192,168,43,142}, ["sonar_2"]}.
 {host, {192,168,43,245}, ["sonar_3"]}.
@@ -63,13 +62,12 @@ Finally, you should write this information on your computer in [/etc/hosts]().
 The format is not the same.
 Here is an example:
 ```
-127.0.1.1  sebastien
+127.0.1.1  hostname_computer
 192.168.43.12 sonar_1
 192.168.43.142 sonar_2
 192.168.43.245 sonar_3
 192.168.43.90 nav_1
 192.168.43.206 nav_2
-
 ```
 If you wish to use our system as is then you must follow the same hostnames as shown in the example (More on that later).
 
@@ -115,6 +113,23 @@ If you want to have more in-depth information about configuration files here are
 - http://erlang.org/doc/man/config.html
 - http://erlang.org/documentation/doc-5.9/doc/design_principles/distributed_applications.html
 
+## Using Numerl (Custom OTP)
+If you wish to use the Numerl NIF, you must first compile a custom version of OTP. This can be done in multiple way (see https://github.com/grisp/grisp/wiki/Building-the-VM-from-source). The fastest way is to use the docker method. To do so first install docker. First, add the following line to the grisp/build/toolchain section of [rebar.config](rebar.config)
+``` erlang
+{grisp, [
+	{build, [
+		{toolchain, [
+			{docker, "grisp/grisp2-rtems-toolchain"}
+		]}
+	]}
+]}
+```
+
+Then, run the following command.
+```bash
+rebar3 grisp build --docker 
+```
+This will generate a _grisp folder containing the VM running on the GRiSP. Using NIFs can only be done by recompiling the whole OTP version due to GRiSP's limitation (https://github.com/grisp/grisp/wiki/NIF-Support).
 
 ## Deployment
 The first thing to do is to format each sd card as **fat32**.
@@ -135,12 +150,14 @@ Then, you should plug the Pmod sensors:
 
 | Pmod      | Slot  |
 | :---:     | :---: |
-| NAV       | SPI1  |
-| MAXSONAR | UART  |
+| NAV       | SPI2  |
+| MAXSONAR | UART  | 
+
+/!\ MAXSONAR has not been tested with GRiSP2, the port might be different
 
 Finally, you can connect the board to the battery.
 During the boot phase you should see one green LED.
-After ~5 min you should see two red LEDs or two green LEDs (see later).
+After ~1 min you should see two red LEDs or two green LEDs (see later).
 In case of problems we advise you to connect the GRiSP-base by serial https://github.com/grisp/grisp/wiki/Connecting-over-Serial.
 You can use `make screen` once the cable is plugged in.
 
