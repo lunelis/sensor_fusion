@@ -36,24 +36,14 @@ init(R0) ->
 
 
 measure({T0, X0, P0, R0}) ->
-    Start = erlang:monotonic_time(microsecond),
     DataNav = hera_data:get(nav3, sensor_fusion@nav_1),
     T1 = hera:timestamp(),
     Nav = [Data || {_,_,Ts,Data} <- DataNav, T0 < Ts, T1-Ts < 500],
     if
         length(Nav) == 0 ->
-            %F = mat:eye(4),
-            %Q = mat:diag([?VAR_Q,?VAR_Q,?VAR_Q,?VAR_Q]),
-            %{Xp, Pp} = kalman:kf_predict({X0,P0}, F, Q),
-            %Values = unit([X || [X] <- Xp]),
-            %X1Norm = [[X] || X <- Values],
-            %{ok, Values, {T1, X1Norm, Pp, R0}};
             {undefined, {T0, X0, P0, R0}};
         true ->
             {Acc, Gyro, Mag} = process_nav(Nav),
-            Time_reading = erlang:monotonic_time(microsecond) - Start,
-
-            Start_comp = erlang:monotonic_time(microsecond),
 
             R1 = ahrs(Acc, Mag),
             Quat = dcm2quat(mat:'*'(R1, R0)),
@@ -75,21 +65,18 @@ measure({T0, X0, P0, R0}) ->
             Z = mat:tr([Quat]),
             R = mat:diag([?VAR_R,?VAR_R,?VAR_R,?VAR_R]),
 
-            Start_predict = erlang:monotonic_time(microsecond),
             {Xp, Pp} = kalman:kf_predict({X0,P0}, F, Q),
-            Time_predict = erlang:monotonic_time(microsecond)-Start_predict,
-            Start_update = erlang:monotonic_time(microsecond),
             {X1, P1} = case qdot(Z, Xp) > 0 of
                 true ->
                     kalman:kf_update({Xp, Pp}, H, R, Z);
                 false ->
                     kalman:kf_update({mat:'*'(-1,Xp), Pp}, H, R, Z)
             end,
-            Time_update = erlang:monotonic_time(microsecond) - Start_update,
+
             % {X1, P1} = {Xp, Pp}, % gyro only
             Values = unit([X || [X] <- X1]),
             X1Norm = [[X] || X <- Values],
-            {ok, lists:append(Values,[erlang:monotonic_time(microsecond) - Start_comp,Time_reading,Time_predict,Time_update]), {T1, X1Norm, P1, R0}}
+            {ok, Values, {T1, X1Norm, P1, R0}}
     end.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
